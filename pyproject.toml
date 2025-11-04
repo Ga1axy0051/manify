@@ -125,7 +125,7 @@ disable_error_code = ["name-defined"]  # Needed for jaxtyping compatibility - el
 # Unit testing with pytest
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--jaxtyping-packages=beartype.beartype"
+#addopts = "--jaxtyping-packages=beartype.beartype"
 python_files = "test_*.py"
 env = ["BEARTYPE_ENABLE=true"]
 
