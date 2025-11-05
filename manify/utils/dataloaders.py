@@ -32,9 +32,7 @@ Earlier versions of Manify included scripts to process raw data, which we have r
 """
 
 from __future__ import annotations
-
 from typing import TYPE_CHECKING
-
 import torch
 from datasets import load_dataset
 
@@ -47,30 +45,59 @@ def load_hf(
 ) -> tuple[
     Float[torch.Tensor, "n_points ..."] | None,  # features
     Float[torch.Tensor, "n_points n_points"] | None,  # pairwise dists
-    Float[torch.Tensor, "n_points n_points"] | None,  # adjacency labels
+    Float[torch.Tensor, "n_points n_points"] | None,  # adjacency
     Real[torch.Tensor, "n_points"] | None,  # labels
 ]:
-    """Load a dataset from HuggingFace Hub at {namespace}/{name}.
-
-    Returns:
-        features: The features for each node, if any
-        dists: The pairwise distance matrix over all nodes, if any
-        adj: The adjacency matrix over all nodes, if any
-        labels: The (classification or regression) labels for each node, if any
     """
-    # 1) fetch the single‑row dataset
+    Load a dataset from HuggingFace Hub at {namespace}/{name}, or from PyG if name='pubmed'.
+    """
+    # ✅ 新增分支：PubMed 数据集
+    if name.lower() == "pubmed":
+        print("📘 Loading PubMed dataset using PyTorch Geometric ...")
+        from torch_geometric.datasets import Planetoid
+        from torch_geometric.utils import to_dense_adj
+        import time
+
+        start_time = time.time()
+        dataset = Planetoid(root="data/PubMed", name="PubMed")
+        data = dataset[0]
+
+        features = data.x
+        labels = data.y
+        adj = to_dense_adj(data.edge_index)[0]
+
+        print(f"✅ Loaded raw PubMed tensors: features {features.shape}, adj {adj.shape}, labels {labels.shape}")
+
+        # 计算 pairwise 欧式距离矩阵
+        with torch.no_grad():
+            try:
+                print("⏳ Computing pairwise distance matrix...")
+                dists = torch.cdist(features, features)
+            except RuntimeError:
+                subset = 1000
+                print(f"⚠️ 内存不足，抽样前 {subset} 个节点计算距离矩阵")
+                features = features[:subset]
+                labels = labels[:subset]
+                adj = adj[:subset, :subset]
+                dists = torch.cdist(features, features)
+
+        elapsed = time.time() - start_time
+        print(f"⏱️ PubMed dataset loaded in {elapsed:.2f} seconds")
+        print(f"节点数: {features.shape[0]}, 特征维度: {features.shape[1]}, 类别数: {len(torch.unique(labels))}\n")
+
+        return features, dists, adj, labels
+
+    # ✅ 原始逻辑（Hugging Face 数据集）
     ds = load_dataset(f"{namespace}/{name}")
     data = ds.get("train", ds)  # use "train" split if available, else the only split
     row = data[0]
 
-    # 2) helper to turn lists → torch (or None)
     def to_tensor(key: str, dtype: torch.dtype) -> torch.Tensor | None:
         vals = row.get(key, [])
         if not vals:
             return None
         return torch.tensor(vals, dtype=dtype)
 
-    # 3) reconstruct everything
     dists = to_tensor("distances", torch.float32)
     feats = to_tensor("features", torch.float32)
     adj = to_tensor("adjacency", torch.float32)
