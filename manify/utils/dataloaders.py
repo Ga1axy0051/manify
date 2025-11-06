@@ -71,21 +71,45 @@ def load_hf(
         # 计算 pairwise 欧式距离矩阵
         with torch.no_grad():
             try:
-                print("⏳ Computing pairwise distance matrix...")
+                print(" Computing pairwise distance matrix...")
                 dists = torch.cdist(features, features)
             except RuntimeError:
                 subset = 1000
-                print(f"⚠️ 内存不足，抽样前 {subset} 个节点计算距离矩阵")
+                print(f" 内存不足，抽样前 {subset} 个节点计算距离矩阵")
                 features = features[:subset]
                 labels = labels[:subset]
                 adj = adj[:subset, :subset]
                 dists = torch.cdist(features, features)
 
         elapsed = time.time() - start_time
-        print(f"⏱️ PubMed dataset loaded in {elapsed:.2f} seconds")
+        print(f" PubMed dataset loaded in {elapsed:.2f} seconds")
         print(f"节点数: {features.shape[0]}, 特征维度: {features.shape[1]}, 类别数: {len(torch.unique(labels))}\n")
 
         return features, dists, adj, labels
+    
+    #COMPUTERS dataset
+    elif name.lower() == "computers":
+        print("📘 Loading Amazon Computers dataset using PyTorch Geometric ...")
+        from torch_geometric.datasets import Amazon
+        dataset = Amazon(root="data/Computers", name="Computers")
+        data = dataset[0]
+
+    # adjacency matrix
+        adj = torch.zeros((data.num_nodes, data.num_nodes), dtype=torch.float32)
+        edges = data.edge_index
+        adj[edges[0], edges[1]] = 1
+        adj[edges[1], edges[0]] = 1  # 无向图
+
+    # 计算 pairwise 距离矩阵（简单版：用特征欧氏距离）
+        print("Computing pairwise distance matrix (features-based)...")
+        features = data.x
+        dists = torch.cdist(features, features, p=2)
+
+        features = features.float()
+        labels = data.y.long()
+        print(" Amazon Computers dataset loaded successfully!")
+        return features, dists, adj, labels
+
 
     # ✅ 原始逻辑（Hugging Face 数据集）
     ds = load_dataset(f"{namespace}/{name}")

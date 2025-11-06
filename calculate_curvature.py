@@ -1,6 +1,8 @@
 import torch
 import time
 import matplotlib.pyplot as plt
+plt.rcParams['font.sans-serif'] = ['SimHei']  # 使用黑体显示中文
+plt.rcParams['axes.unicode_minus'] = False     # 正常显示负号
 from manify.utils.dataloaders import load_hf
 from manify.curvature_estimation.sectional_curvature import sectional_curvature
 
@@ -16,8 +18,9 @@ if device.type == "cuda":
 # =========================================================
 # 加载数据集
 # =========================================================
-features, dists, adj, labels = load_hf("cora")  # 小图测试
+#features, dists, adj, labels = load_hf("cora")  # 小图测试
 #features, dists, adj, labels = load_hf("pubmed")  # 改为 PubMed
+features, dists, adj, labels = load_hf("computers")  # Amazon Computers
 
 if features is None:
     print("Warning: features 为 None，使用单位矩阵代替。")
