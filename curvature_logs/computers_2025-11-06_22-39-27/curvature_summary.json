@@ -1,0 +1,8 @@
+{
+  "dataset": "computers",
+  "mean": NaN,
+  "min": NaN,
+  "max": NaN,
+  "nodes": 13752,
+  "device": "cuda"
+}

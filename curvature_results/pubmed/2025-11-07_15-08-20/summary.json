@@ -1,0 +1,11 @@
+{
+  "dataset": "pubmed",
+  "mode": "strict",
+  "nodes": 19717,
+  "mean": 0.014811186119914055,
+  "min": -0.5015644431114197,
+  "max": 0.31925052404403687,
+  "device": "cuda",
+  "elapsed_minutes": 3.05,
+  "timestamp": "2025-11-07_15-08-20"
+}

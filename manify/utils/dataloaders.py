@@ -35,6 +35,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 import torch
 from datasets import load_dataset
+from torch_geometric.datasets import Amazon
+
 
 if TYPE_CHECKING:
     from jaxtyping import Float, Real
@@ -109,6 +111,27 @@ def load_hf(
         labels = data.y.long()
         print(" Amazon Computers dataset loaded successfully!")
         return features, dists, adj, labels
+    
+    # 🟦 单独分支：处理 Amazon Photo 数据集
+    # ======================================================
+    if name == "photo":
+        print("📘 Loading Amazon Photo dataset using PyTorch Geometric ...")
+
+        dataset = Amazon(root="./data", name="Photo")  # 注意首字母大写
+        data = dataset[0]
+
+        # 构建稠密邻接矩阵
+        adj = torch.sparse_coo_tensor(
+            data.edge_index,
+            torch.ones(data.edge_index.shape[1]),
+            (data.num_nodes, data.num_nodes)
+        ).to_dense()
+
+        # 特征欧氏距离矩阵（计算量较大，可考虑只近似或采样）
+        dists = torch.cdist(data.x.float(), data.x.float())
+
+        print(f"✅ Loaded Photo dataset: {data.num_nodes} nodes, {data.num_features} features, {data.y.unique().numel()} classes.")
+        return data.x, dists, adj, data.y
 
 
     # ✅ 原始逻辑（Hugging Face 数据集）

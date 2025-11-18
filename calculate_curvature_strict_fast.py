@@ -1,12 +1,15 @@
 import torch
 import time
+import os
+import json
 import matplotlib.pyplot as plt
-plt.rcParams['font.sans-serif'] = ['SimHei']  # 使用黑体显示中文
-plt.rcParams['axes.unicode_minus'] = False     # 正常显示负号
+from datetime import datetime
+
+plt.rcParams['font.sans-serif'] = ['SimHei']  # 中文字体
+plt.rcParams['axes.unicode_minus'] = False    # 正常显示负号
 
 from manify.utils.dataloaders import load_hf
-#  调用最新版函数（支持日志+数据集名+GPU）
-from manify.curvature_estimation.sectional_curvature import sectional_curvature
+from manify.curvature_estimation.sectional_curvature_strict_fast import sectional_curvature_gpu
 
 
 # =========================================================
@@ -22,10 +25,14 @@ if device.type == "cuda":
 # =========================================================
 # 选择数据集
 # =========================================================
-dataset_name = "pubmed"    #  想改数据集，只需改这里
+#dataset_name = "computers"   #  换数据集
+#dataset_name = "pubmed"
 #dataset_name = "cora"
-#dataset_name = "computers"
-
+#dataset_name = "citeseer"
+dataset_name = "photo"
+#dataset_name = "cs"
+#dataset_name = "polblogs"
+#dataset_name = "polbooks"
 # =========================================================
 # 加载数据集
 # =========================================================
@@ -35,10 +42,22 @@ if features is None:
     print(" Warning: features 为 None，使用单位矩阵代替。")
     features = torch.eye(adj.shape[0])
 
-print("✅ 数据加载成功：")
+print(" 数据加载成功：")
 print(f"节点数: {adj.shape[0]}")
 print(f"特征维度: {features.shape[1]}")
 print(f"类别数: {len(torch.unique(labels))}\n")
+
+
+# =========================================================
+# 自动选择模式
+# =========================================================
+n_nodes = adj.shape[0]
+if n_nodes <= 5000:
+    mode = "fast"
+else:
+    mode = "strict"
+
+print(f" 自动选择计算模式：{mode.upper()}  （节点数 = {n_nodes}）\n")
 
 
 # =========================================================
@@ -49,18 +68,27 @@ dists = dists.to(device)
 
 
 # =========================================================
-# 开始计时 + 曲率计算
+# 输出目录准备
+# =========================================================
+timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+save_dir = os.path.join("curvature_results", dataset_name, timestamp)
+os.makedirs(save_dir, exist_ok=True)
+
+
+# =========================================================
+# 曲率计算
 # =========================================================
 print(f" 开始计算 {dataset_name} 数据集的截面曲率...\n")
 start_time = time.time()
 
 try:
-    #  调用新版函数，自动带日志与保存
-    curvatures = sectional_curvature(
+    curvatures = sectional_curvature_gpu(
         adj,
         dists,
         device=device,
-        dataset_name=dataset_name,  #  自动命名日志目录
+        mode=mode,
+        pair_chunk_size=2048,
+        relative=True,
         show_progress=True,
     )
 
@@ -70,28 +98,45 @@ except RuntimeError as e:
         torch.cuda.empty_cache()
         adj = adj.cpu()
         dists = dists.cpu()
-        curvatures = sectional_curvature(
+        curvatures = sectional_curvature_gpu(
             adj,
             dists,
             device="cpu",
-            dataset_name=dataset_name,
+            mode=mode,
+            relative=True,
             show_progress=True,
         )
     else:
         raise e
 
-end_time = time.time()
-elapsed = end_time - start_time
+elapsed = time.time() - start_time
 print(f"\n 曲率计算总耗时: {elapsed / 60:.2f} 分钟\n")
 
 
 # =========================================================
-# 输出结果
+# 结果保存与统计
 # =========================================================
 curvatures_cpu = curvatures.detach().cpu()
-print("平均曲率:", curvatures_cpu.mean().item())
-print("最小值:", curvatures_cpu.min().item())
-print("最大值:", curvatures_cpu.max().item())
+torch.save(curvatures_cpu, os.path.join(save_dir, "curvatures.pt"))
+
+summary = {
+    "dataset": dataset_name,
+    "mode": mode,
+    "nodes": n_nodes,
+    "mean": float(curvatures_cpu.mean().item()),
+    "min": float(curvatures_cpu.min().item()),
+    "max": float(curvatures_cpu.max().item()),
+    "device": str(device),
+    "elapsed_minutes": round(elapsed / 60, 2),
+    "timestamp": timestamp,
+}
+with open(os.path.join(save_dir, "summary.json"), "w", encoding="utf-8") as f:
+    json.dump(summary, f, indent=2, ensure_ascii=False)
+
+print(" 平均曲率:", summary["mean"])
+print(" 最小值:", summary["min"])
+print(" 最大值:", summary["max"])
+print(f" 结果已保存到: {save_dir}\n")
 
 
 # =========================================================
@@ -99,8 +144,10 @@ print("最大值:", curvatures_cpu.max().item())
 # =========================================================
 plt.figure(figsize=(8, 5))
 plt.hist(curvatures_cpu.numpy(), bins=30, color="skyblue", edgecolor="black")
-plt.title(f"{dataset_name.upper()} 图节点曲率分布 (GPU 自动日志记录)")
+plt.title(f"{dataset_name.upper()} 图节点曲率分布 ({mode.upper()} 模式 GPU 加速版)")
 plt.xlabel("Sectional Curvature")
 plt.ylabel("Frequency")
 plt.grid(alpha=0.3)
+plt.tight_layout()
+plt.savefig(os.path.join(save_dir, "curvature_distribution.png"), dpi=300)
 plt.show()

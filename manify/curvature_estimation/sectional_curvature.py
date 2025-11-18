@@ -1,9 +1,12 @@
-r"""Sectional curvature estimation for graphs (GPU optimized + tqdm progress bar)."""
+r"""Sectional curvature estimation for graphs (GPU safe + tqdm + logging + checkpoint + dataset-based logs)."""
 
 from __future__ import annotations
 from typing import TYPE_CHECKING
 import torch
-from tqdm import tqdm  # ✅ 新增
+import os
+import json
+from tqdm import tqdm
+from datetime import datetime
 
 if TYPE_CHECKING:
     from jaxtyping import Float
@@ -16,66 +19,67 @@ def sectional_curvature(
     relative: bool = True,
     show_progress: bool = True,
     device: str | torch.device = "cuda",
+    dataset_name: str = "default",        #  新增：自动按数据集命名日志
+    save_every: int = 100,
+    resume: bool = True,
+    force_restart: bool = False,
+    base_log_dir: str = "./curvature_logs",  #  主日志目录
 ) -> Float[torch.Tensor, "n_points"] | Float[torch.Tensor, "samples"]:
     """
-    GPU 加速 + tqdm 实时进度条版。
+    GPU 加速 + tqdm 实时进度条 + 安全过滤（避免 NaN / Inf）+ 自动日志管理。
     """
-    if not isinstance(adjacency_matrix, torch.Tensor) or not isinstance(distance_matrix, torch.Tensor):
-        raise TypeError("Both adjacency_matrix and distance_matrix must be torch.Tensors")
 
-    if adjacency_matrix.shape != distance_matrix.shape:
-        raise ValueError("Adjacency matrix and distance matrix must have the same shape")
+    # =========================================================
+    # 1️ 构造数据集专属日志目录
+    # =========================================================
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    save_dir = os.path.join(base_log_dir, f"{dataset_name}_{timestamp}")
+    os.makedirs(save_dir, exist_ok=True)
+
+    log_path = os.path.join(save_dir, "curvature_log.txt")
+    ckpt_path = os.path.join(save_dir, "curvature_checkpoint.pt")
+    final_path = os.path.join(save_dir, "curvature_final.pt")
+
+    # =========================================================
+    # 2️ 日志写入函数
+    # =========================================================
+    def log(msg: str):
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n")
+        print(msg)
+
+    # =========================================================
+    # 3️ 初始化 / 恢复检查点
+    # =========================================================
+    if force_restart and os.path.exists(ckpt_path):
+        os.remove(ckpt_path)
+        log(" 已清理旧的 checkpoint 文件。")
+
+    start_index = 0
+    node_curvatures = None
+    if resume and os.path.exists(ckpt_path):
+        ckpt = torch.load(ckpt_path, map_location=device)
+        node_curvatures = ckpt.get("node_curvatures")
+        start_index = ckpt.get("last_index", 0)
+        log(f" 检测到未完成任务，恢复自节点 {start_index} ...")
 
     A = adjacency_matrix.float().to(device)
     D = distance_matrix.float().to(device)
-
-    if samples is not None:
-        return _sample_curvatures(D, samples, relative, device)
-    else:
-        return _compute_node_curvatures(A, D, relative, device)
-
-
-def _sample_curvatures(
-    D: Float[torch.Tensor, "n_points n_points"],
-    n_samples: int,
-    relative: bool,
-    device: str | torch.device,
-) -> Float[torch.Tensor, "n_samples"]:
-    """Sample random triangle configurations and compute curvature estimates."""
-    n = D.shape[0]
-    indices = torch.randint(0, n, (n_samples, 4), device=device)
-    a, b, c, m = indices.T
-
-    valid_mask = a != m
-    curvatures = torch.zeros(n_samples, dtype=torch.float32, device=device)
-
-    if valid_mask.any():
-        valid_a, valid_b, valid_c, valid_m = a[valid_mask], b[valid_mask], c[valid_mask], m[valid_mask]
-        curvature_values = (
-            D[valid_a, valid_m] ** 2
-            + (D[valid_b, valid_c] ** 2) / 4.0
-            - (D[valid_a, valid_b] ** 2 + D[valid_a, valid_c] ** 2) / 2.0
-        ) / (2 * D[valid_a, valid_m])
-        curvatures[valid_mask] = curvature_values
-
-    if relative:
-        curvatures = curvatures / torch.max(D)
-
-    return curvatures
-
-
-def _compute_node_curvatures(
-    A: Float[torch.Tensor, "n_points n_points"],
-    D: Float[torch.Tensor, "n_points n_points"],
-    relative: bool,
-    device: str | torch.device,
-) -> Float[torch.Tensor, "n_points"]:
-    """Compute curvature for each node by averaging over neighbor triangles, with tqdm progress bar."""
     n = A.shape[0]
-    node_curvatures = torch.zeros(n, dtype=torch.float32, device=device)
+    if node_curvatures is None:
+        node_curvatures = torch.zeros(n, dtype=torch.float32, device=device)
 
-    # ✅ 使用 tqdm 监控循环
-    for m in tqdm(range(n), desc="Computing node curvatures", ncols=90):
+    log(f" 开始计算曲率，总节点数: {n}, 设备: {device}")
+
+    # =========================================================
+    # 4️ 曲率计算核心
+    # =========================================================
+    invalid_total = 0
+    total_samples = 0
+
+    iterator = tqdm(range(start_index, n), desc="Computing node curvatures", ncols=90) if show_progress else range(start_index, n)
+
+    for m in iterator:
         neighbors = torch.where(A[m] == 1)[0]
         if len(neighbors) < 2:
             continue
@@ -85,8 +89,6 @@ def _compute_node_curvatures(
         for i in range(len(neighbors)):
             for j in range(i + 1, len(neighbors)):
                 b, c = neighbors[i], neighbors[j]
-
-                # 预先构建索引向量 (批处理)
                 a_indices = torch.arange(n, device=device)
                 valid_a = a_indices[a_indices != m]
 
@@ -95,15 +97,68 @@ def _compute_node_curvatures(
                 D_ab = D[valid_a, b]
                 D_ac = D[valid_a, c]
 
-                # 向量化曲率计算
-                curvature_vals = (D_am**2 + (D_bc**2) / 4.0 - (D_ab**2 + D_ac**2) / 2.0) / (2 * D_am)
+                #  数值安全过滤
+                safe_mask = (D_am > 1e-9) & torch.isfinite(D_am)
+                D_am_safe = D_am[safe_mask]
+                if len(D_am_safe) == 0:
+                    continue
+
+                D_ab_safe = D_ab[safe_mask]
+                D_ac_safe = D_ac[safe_mask]
+
+                curvature_vals = (
+                    D_am_safe**2 + (D_bc**2) / 4.0 - (D_ab_safe**2 + D_ac_safe**2) / 2.0
+                ) / (2 * D_am_safe)
+
+                # 去除 NaN / Inf
+                finite_mask = torch.isfinite(curvature_vals)
+                invalid_total += (~finite_mask).sum().item()
+                total_samples += len(curvature_vals)
+
+                curvature_vals = curvature_vals[finite_mask]
+                if len(curvature_vals) == 0:
+                    continue
+
                 triangle_curvatures.append(curvature_vals.mean())
 
         if triangle_curvatures:
             node_curvatures[m] = torch.stack(triangle_curvatures).mean()
-    
+
+        # 定期保存
+        if (m + 1) % save_every == 0 or (m + 1) == n:
+            torch.save(
+                {"node_curvatures": node_curvatures, "last_index": m + 1},
+                ckpt_path
+            )
+            log(f" 已保存进度：节点 {m + 1}/{n}")
+
+    # =========================================================
+    # 5️ 后处理 + 安全归一化
+    # =========================================================
     if relative:
-       node_curvatures = node_curvatures / torch.max(D)
+        max_D = torch.max(D)
+        if max_D > 0 and torch.isfinite(max_D):
+            node_curvatures = node_curvatures / max_D
+        else:
+            log(" 跳过归一化：最大距离为 0 或 NaN。")
 
+    # =========================================================
+    # 6 结果保存 + 汇总统计
+    # =========================================================
+    torch.save(node_curvatures, final_path)
+    log(" 曲率计算完成，结果已保存 curvature_final.pt")
+
+    stats = {
+        "mean": float(node_curvatures.mean().item()),
+        "min": float(node_curvatures.min().item()),
+        "max": float(node_curvatures.max().item()),
+        "invalid_ratio": float(invalid_total / max(total_samples, 1)),
+        "nodes": int(n),
+        "device": str(device),
+    }
+
+    with open(os.path.join(save_dir, "curvature_summary.json"), "w", encoding="utf-8") as f:
+        json.dump(stats, f, indent=2, ensure_ascii=False)
+
+    log(f" 结果统计：mean={stats['mean']:.6f}, min={stats['min']:.6f}, max={stats['max']:.6f}, 无效比={stats['invalid_ratio']:.2%}")
     return node_curvatures
-

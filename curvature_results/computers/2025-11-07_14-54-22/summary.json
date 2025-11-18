@@ -1,0 +1,11 @@
+{
+  "dataset": "computers",
+  "mode": "strict",
+  "nodes": 13752,
+  "mean": 0.019262075424194336,
+  "min": -0.39717769622802734,
+  "max": 0.17934028804302216,
+  "device": "cuda",
+  "elapsed_minutes": 5.32,
+  "timestamp": "2025-11-07_14-54-22"
+}
