@@ -54,6 +54,68 @@ def load_hf(
     """
     Load a dataset from HuggingFace Hub at {namespace}/{name}, or from PyG if name='pubmed'.
     """
+    # ======================================================================================
+    #  1. web-Google (SNAP) ———— 新增的分支（你需要的）
+    # ======================================================================================
+    if name.lower().replace("_", "").replace("-", "") in ["webgoogle", "webgoogle"]:
+        import networkx as nx
+        import time
+
+        SNAP_PATH = "/home/guoquanjiang/WXY/benchmark_datasets/web-Google/web-Google.txt"
+        print(f"📘 Loading SNAP web-Google from: {SNAP_PATH}")
+
+        t0 = time.time()
+
+        # ---------- 读 SNAP 边 ----------
+        G = nx.DiGraph()
+        with open(SNAP_PATH, "r") as f:
+            for line in f:
+                if line.startswith("#") or not line.strip():
+                    continue
+                u, v = map(int, line.split())
+                G.add_edge(u, v)
+
+        print(f" Loaded directed graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
+
+        # ---------- 转成无向图 ----------
+        H = G.to_undirected()
+        nodes = list(H.nodes())
+        node_idx = {v: i for i, v in enumerate(nodes)}
+        n = len(nodes)
+
+        print(f" Converting to adjacency dense FP16 matrix, size = {n}x{n} ... (≈ {n*n*2/1024/1024/1024:.2f} GB)")
+
+        # ---------- adjacency dense ----------
+        adj = torch.zeros((n, n), dtype=torch.float16)
+        for u, v in H.edges():
+            i, j = node_idx[u], node_idx[v]
+            adj[i, j] = 1
+            adj[j, i] = 1
+
+        # ---------- shortest path distances ----------
+        print(" Computing all-pairs shortest path distance matrix (APSP)...")
+        print(" 这一步最耗时（可能 1~3 小时），请耐心等待。")
+
+        dists = torch.full((n, n), float("inf"), dtype=torch.float32)
+
+        for i, src in enumerate(nodes):
+            lengths = nx.single_source_shortest_path_length(H, src)
+            for tgt, d in lengths.items():
+                dists[i, node_idx[tgt]] = float(d)
+
+        # inf → finite
+        max_finite = torch.max(dists[dists < float("inf")])
+        dists[dists == float("inf")] = max_finite * 2
+
+        print(f" APSP done in {time.time() - t0:.2f} seconds\n")
+
+        # ---- web-Google 没有 features / labels ----
+        features = None
+        labels = None
+
+        return features, dists, adj, labels
+
+
     # ✅ 新增分支：PubMed 数据集
     if name.lower() == "pubmed":
         print("📘 Loading PubMed dataset using PyTorch Geometric ...")
