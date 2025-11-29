@@ -27,12 +27,13 @@ if device.type == "cuda":
 # =========================================================
 #dataset_name = "computers"   #  换数据集
 #dataset_name = "pubmed"
-#dataset_name = "cora"
+dataset_name = "cora"
 #dataset_name = "citeseer"
-dataset_name = "photo"
+#dataset_name = "photo"
 #dataset_name = "cs"
 #dataset_name = "polblogs"
 #dataset_name = "polbooks"
+#dataset_name = "webgoogle"
 # =========================================================
 # 加载数据集
 # =========================================================
