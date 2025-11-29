@@ -10,6 +10,10 @@ plt.rcParams['axes.unicode_minus'] = False    # 正常显示负号
 
 from manify.utils.dataloaders import load_hf
 from manify.curvature_estimation.sectional_curvature_strict_fast import sectional_curvature_gpu
+from manify.curvature_estimation.gromov_curvature_wordnet import (
+    compute_gromov_curvature_wordnet
+)
+
 
 
 # =========================================================
@@ -29,10 +33,12 @@ if device.type == "cuda":
 #dataset_name = "pubmed"
 #dataset_name = "cora"
 #dataset_name = "citeseer"
-dataset_name = "photo"
-#dataset_name = "cs"
+#dataset_name = "photo"
+#dataset_name = "cs_phds"
 #dataset_name = "polblogs"
 #dataset_name = "polbooks"
+#dataset_name = "airport"  
+dataset_name = "wordnet"
 # =========================================================
 # 加载数据集
 # =========================================================
@@ -43,9 +49,36 @@ if features is None:
     features = torch.eye(adj.shape[0])
 
 print(" 数据加载成功：")
-print(f"节点数: {adj.shape[0]}")
+print(f"节点数: {features.shape[0]}")
 print(f"特征维度: {features.shape[1]}")
-print(f"类别数: {len(torch.unique(labels))}\n")
+
+if labels is not None:
+    print(f"类别数: {len(torch.unique(labels))}\n")
+else:
+    print("类别数: 无\n")
+
+# =========================================================
+# WordNet：不走 STRICT/FAST，直接使用四点 Gromov 曲率
+# =========================================================
+if dataset_name.lower() in ["wordnet", "wordnet_poincare"]:
+    print("\n 使用 WordNet 四点 Gromov 曲率估计，不进入 STRICT/FAST 流程\n")
+
+    mean_delta, deltas = compute_gromov_curvature_wordnet(
+        adj_sparse=adj,
+        num_samples=2000,
+        max_dist=10,
+        seed=0,
+    )
+
+    print(f" 平均 Gromov δ: {mean_delta:.4f}")
+    print(f" 样本量: {len(deltas)}")
+
+    # 保存
+    out = "wordnet_gromov_deltas.pt"
+    torch.save(deltas, out)
+    print(f" 结果已保存到 {out}")
+
+    raise SystemExit(0)   # 强制退出，避免进入 STRICT 模式
 
 
 # =========================================================
