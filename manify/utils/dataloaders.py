@@ -34,6 +34,7 @@ Earlier versions of Manify included scripts to process raw data, which we have r
 from __future__ import annotations
 from typing import TYPE_CHECKING
 import torch
+import numpy as np
 from datasets import load_dataset
 from torch_geometric.datasets import Amazon
 
@@ -152,9 +153,8 @@ def load_hf(
         return features, dists, adj, labels
     
     #COMPUTERS dataset
-    elif name.lower() == "computers":
+    if name.lower() == "computers":
         print("📘 Loading Amazon Computers dataset using PyTorch Geometric ...")
-        from torch_geometric.datasets import Amazon
         dataset = Amazon(root="data/Computers", name="Computers")
         data = dataset[0]
 
@@ -174,6 +174,32 @@ def load_hf(
         print(" Amazon Computers dataset loaded successfully!")
         return features, dists, adj, labels
     
+    if name.lower() == "airport":
+        print("📘 Loading Airports dataset using PyTorch Geometric ...")
+
+        from torch_geometric.datasets import Airports
+        from torch_geometric.utils import to_dense_adj
+
+        # 你可以选一个区域：USA / Europe / Brazil
+        dataset = Airports(root="./data/Airport", name="USA")   # ← 改成 Europe/Brazil 也可以
+        data = dataset[0]
+
+        # adjacency (dense)
+        adj = to_dense_adj(data.edge_index)[0]
+
+        # features
+        features = data.x.float()
+
+        # labels（Airports 数据集是回归任务）
+        labels = data.y.float()
+
+        # distance matrix
+        print("⚙️ Computing pairwise feature distance matrix ...")
+        dists = torch.cdist(features, features)
+
+        print(f"✅ Loaded Airport-USA: nodes={features.size(0)}, feat_dim={features.size(1)}")
+        return features, dists, adj, labels
+
     # 🟦 单独分支：处理 Amazon Photo 数据集
     # ======================================================
     if name == "photo":
@@ -194,6 +220,35 @@ def load_hf(
 
         print(f"✅ Loaded Photo dataset: {data.num_nodes} nodes, {data.num_features} features, {data.y.unique().numel()} classes.")
         return data.x, dists, adj, data.y
+
+    
+
+    # 🌐 WordNet Hypernym Graph (Poincaré Embeddings version)
+
+    if name.lower() in ["wordnet", "wordnet_poincare"]:
+        print("📘 Loading WordNet hypernym graph (poincaré version) ...")
+
+        import os
+
+        path = "./data/wordnet_graph.pt"   # 你自己生成的那个文件
+        if not os.path.exists(path):
+            raise FileNotFoundError(
+                f"找不到 {path}\n"
+                "请运行 build_wordnet_graph.py 来生成 wordnet_graph.pt"
+            )
+
+        data = torch.load(path)
+
+        features = data["features"]        # [N, 1]
+        adj = data["adj_sparse"]           # 稀疏邻接矩阵
+        labels = data["labels"]            # None
+        dists = data["dists"]              # None
+
+        print(f"✔ WordNet loaded: nodes={features.shape[0]}, feature_dim={features.shape[1]}")
+        print(f"✔ adjacency nnz = {adj._nnz()} (sparse)")
+
+        return features, dists, adj, labels
+
 
 
     # ✅ 原始逻辑（Hugging Face 数据集）
