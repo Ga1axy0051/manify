@@ -1,0 +1,11 @@
+{
+  "dataset": "rocketfuel_7018",
+  "mode": "strict",
+  "nodes": 9430,
+  "mean": 0.0008013336919248104,
+  "min": -0.0340467132627964,
+  "max": 0.03566206991672516,
+  "device": "cuda",
+  "elapsed_minutes": 0.25,
+  "timestamp": "2025-12-14_22-03-26"
+}

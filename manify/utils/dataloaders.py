@@ -226,11 +226,11 @@ def load_hf(
     # 🌐 WordNet Hypernym Graph (Poincaré Embeddings version)
 
     if name.lower() in ["wordnet", "wordnet_poincare"]:
-        print("📘 Loading WordNet hypernym graph (poincaré version) ...")
+        print(" Loading WordNet hypernym graph (poincaré version) ...")
 
         import os
 
-        path = "./data/wordnet_graph.pt"   # 你自己生成的那个文件
+        path = "./manify/data/wordnet/wordnet_direct_graph.pt"   # 你自己生成的那个文件
         if not os.path.exists(path):
             raise FileNotFoundError(
                 f"找不到 {path}\n"
@@ -248,9 +248,446 @@ def load_hf(
         print(f"✔ adjacency nnz = {adj._nnz()} (sparse)")
 
         return features, dists, adj, labels
+    
+    if name.lower() in ["telecom", "telegraph", "telecom_graph"]:
+        print(" Loading telecom_graph.pt ...")
+
+        import torch
+        import networkx as nx
+        from torch_geometric.utils import to_dense_adj
+        import os
+        import time
+
+        path = "/home/guoquanjiang/WXY/manify/data/telecom/telecom_graph.pt"
+        if not os.path.exists(path):
+            raise FileNotFoundError(f" 未找到文件：{path}")
+
+        t0 = time.time()
+
+        data = torch.load(path, map_location="cpu")
+
+        # TeleGraph 文件字段通常包含：
+        #   - data["edge_index"]
+        #   - data["x"] (可能有，也可能没有)
+        #   - data["y"] (一般没有)
+        edge_index = data["edge_index"]
+        num_nodes = int(edge_index.max()) + 1
+
+        print(f"  nodes={num_nodes}, edges={edge_index.shape[1]}")
+
+        # ------------------------------
+        # adjacency matrix (dense)
+        # ------------------------------
+        print("  Building dense adjacency matrix ...")
+        adj = to_dense_adj(edge_index, max_num_nodes=num_nodes).squeeze(0).float()
+
+        # ------------------------------
+        # APSP shortest-path matrix
+        # ------------------------------
+        print("  Computing APSP distance matrix (NetworkX)...")
+        print("   注意：这个步骤可能需要几十秒~数分钟")
+
+        G = nx.Graph()
+        edges = edge_index.t().tolist()
+        G.add_edges_from(edges)
+
+        dists = torch.full((num_nodes, num_nodes), float("inf"), dtype=torch.float32)
+
+        for i in range(num_nodes):
+            sp = nx.single_source_shortest_path_length(G, i)
+            for j, d in sp.items():
+                dists[i, j] = float(d)
+
+        # inf → large finite
+        max_finite = dists[dists < float("inf")].max()
+        dists[dists == float("inf")] = max_finite * 2
+
+        # ------------------------------
+        # features / labels
+        # ------------------------------
+        features = data["x"].float() if "x" in data and data["x"] is not None else None
+        labels = data["y"].long() if "y" in data and data["y"] is not None else None
+
+        print(f"✔ Telecom loaded in {time.time() - t0:.2f} seconds\n")
+
+        return features, dists, adj, labels
+    
+        # ======================================================================================
+    #  Higgs Retweet Network — Small Version (dense adj + APSP)
+    # ======================================================================================
+    if name.lower() in ["higgs", "higgs_retweet", "higgs_retweet_network", "twitter"]:
+        print(" Loading Higgs Retweet Network (dense version) ...")
+
+        import os
+        import torch
+        import networkx as nx
+        from torch_geometric.utils import to_dense_adj
+        import time
+
+        path = "/home/guoquanjiang/WXY/manify/data/twitter/higgs-retweet_network.edgelist"
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"未找到 Higgs edgelist 文件: {path}")
+
+        # 1) Load as networkx graph
+        print(" Reading edge list ...")
+        G = nx.read_edgelist(path, nodetype=int, data=False)
+
+        num_nodes = max(G.nodes()) + 1
+        num_edges = G.number_of_edges()
+        print(f"✔ Loaded: {num_nodes} nodes, {num_edges} edges")
 
 
+        # 2) convert to edge_index
+        edges = torch.tensor(list(G.edges()), dtype=torch.long)
+        edges = torch.cat([edges, edges[:, [1, 0]]], dim=0)
+        edge_index = edges.t().contiguous()
 
+        # 3) Dense adjacency
+        print("📦 Building dense adjacency ...")
+        adj = to_dense_adj(edge_index, max_num_nodes=num_nodes).squeeze(0).float()
+
+        # 4) APSP shortest-path distances
+        print("⏳ Computing APSP via NetworkX...")
+        t0 = time.time()
+        dists = torch.full((num_nodes, num_nodes), float('inf'))
+
+        for i in range(num_nodes):
+            sp = nx.single_source_shortest_path_length(G, i)
+            for j, d in sp.items():
+                dists[i, j] = float(d)
+
+        max_finite = dists[dists < float("inf")].max()
+        dists[dists == float("inf")] = max_finite * 2
+
+        print(f"✔ APSP done in {time.time() - t0:.2f} seconds.")
+
+        # Higgs 没有 feature / label
+        return None, dists, adj, None
+    
+    # ======================================================================================
+    #  Higgs Retweet Subgraph — 用于曲率实验（dense adj + APSP）
+    # ======================================================================================
+    if name.lower() in ["twitter10k", "higgs_sub10k"]:
+        print(" Loading Higgs subgraph (dense version) ...")
+
+        import os
+        import torch
+        import networkx as nx
+        from torch_geometric.utils import to_dense_adj
+        import time
+
+        path = "/home/guoquanjiang/WXY/manify/data/twitter/higgs_sub10k.edgelist"
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"未找到 Higgs 子图文件: {path}")
+
+        print(" Reading subgraph edge list ...")
+        G = nx.read_edgelist(path, nodetype=int, data=False)
+
+        # 重新映射节点 ID 到 0..n-1，避免 ID 稀疏导致矩阵很大
+        nodes = list(G.nodes())
+        node_id = {v: i for i, v in enumerate(nodes)}
+        num_nodes = len(nodes)
+
+        edges = []
+        for u, v in G.edges():
+            edges.append([node_id[u], node_id[v]])
+            edges.append([node_id[v], node_id[u]])
+
+        edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
+        print(f"✔ Subgraph: {num_nodes} nodes, {edge_index.shape[1]//2} undirected edges")
+
+        # dense adjacency
+        print(" Building dense adjacency ...")
+        adj = to_dense_adj(edge_index, max_num_nodes=num_nodes).squeeze(0).float()
+
+           # APSP shortest-path distances
+        print(" Computing APSP via NetworkX ...")
+        t0 = time.time()
+
+        import numpy as np
+        from tqdm import tqdm   # ← tqdm
+
+        dists = torch.full((num_nodes, num_nodes), float('inf'), dtype=torch.float32)
+
+        # 用映射后的索引 BFS
+        G_remap = nx.Graph()
+        G_remap.add_edges_from([(node_id[u], node_id[v]) for u, v in G.edges()])
+
+        # 加 tqdm 进度条
+        for i in tqdm(range(num_nodes), desc="APSP (BFS from each node)", ncols=100):
+            sp = nx.single_source_shortest_path_length(G_remap, i)
+            for j, d in sp.items():
+                dists[i, j] = float(d)
+
+        max_finite = dists[dists < float("inf")].max()
+        dists[dists == float("inf")] = max_finite * 2
+
+        print(f"✔ APSP done in {time.time() - t0:.2f} seconds.")
+
+
+        # Higgs 子图没有 feature / label
+        features = None
+        labels = None
+
+        return features, dists, adj, labels
+    
+    # ======================================================================================
+    #  Rocketfuel ISP Network — AS7018 (AT&T) with tqdm
+    # ======================================================================================
+    # ======================================================================================
+    #  Rocketfuel ISP Network — AS7018 (FORCE APSP, STRICT MODE)
+    # ======================================================================================
+    if name.lower() in ["as7018", "rocketfuel_7018", "att7018"]:
+        print("📘 Loading Rocketfuel AS7018 (r1) graph — FORCE APSP")
+
+        import os
+        import torch
+        import networkx as nx
+        from torch_geometric.utils import to_dense_adj
+        from tqdm import tqdm
+        import time
+
+        EDGE_PATH = "/home/guoquanjiang/WXY/benchmark_datasets/rocket7018IPL/7018_edgelist.txt"
+        if not os.path.exists(EDGE_PATH):
+            raise FileNotFoundError(f"未找到 AS7018 edgelist: {EDGE_PATH}")
+
+        t0 = time.time()
+
+        # --------------------------------------------------
+        # 1) Load graph
+        # --------------------------------------------------
+        print(" Reading edgelist ...")
+        G = nx.read_edgelist(EDGE_PATH, nodetype=int, data=False)
+
+        nodes = list(G.nodes())
+        node_id = {v: i for i, v in enumerate(nodes)}
+        num_nodes = len(nodes)
+
+        # --------------------------------------------------
+        # 2) Build edge_index
+        # --------------------------------------------------
+        edges = []
+        for u, v in tqdm(G.edges(), desc=" Building edge_index", ncols=100):
+            edges.append([node_id[u], node_id[v]])
+            edges.append([node_id[v], node_id[u]])
+
+        edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
+
+        print(f"✔ AS7018 graph: nodes={num_nodes}, edges={edge_index.shape[1]//2}")
+
+        # --------------------------------------------------
+        # 3) Dense adjacency
+        # --------------------------------------------------
+        print(" Building dense adjacency matrix ...")
+        adj = to_dense_adj(edge_index, max_num_nodes=num_nodes).squeeze(0).float()
+
+        # --------------------------------------------------
+        # 4) APSP via BFS (THIS IS THE EXPENSIVE PART)
+        # --------------------------------------------------
+        print("  Computing APSP via NetworkX BFS ...")
+
+        # 重建 remapped graph（BFS 用）
+        G_remap = nx.Graph()
+        G_remap.add_edges_from(
+            [(node_id[u], node_id[v]) for u, v in G.edges()]
+        )
+
+        dists = torch.full(
+            (num_nodes, num_nodes),
+            float("inf"),
+            dtype=torch.float32
+        )
+
+        for i in tqdm(range(num_nodes),
+                    desc="APSP (BFS from each node)",
+                    ncols=100):
+            sp = nx.single_source_shortest_path_length(G_remap, i)
+            for j, d in sp.items():
+                dists[i, j] = float(d)
+
+        # inf → finite（manify 兼容）
+        max_finite = dists[dists < float("inf")].max()
+        dists[dists == float("inf")] = max_finite * 2
+
+        print(f"✔ APSP done in {time.time() - t0:.2f} seconds")
+
+        # --------------------------------------------------
+        # 5) No features / labels
+        # --------------------------------------------------
+        features = None
+        labels = None
+
+        print("✔ AS7018 loaded with FULL APSP\n")
+
+        return features, dists, adj, labels
+    
+    # ======================================================================================
+    #  roadNet-CA BFS subgraph — 20K nodes (dense, for sectional curvature)
+    # ======================================================================================
+    if name.lower() in ["roadnet_ca_20k", "roadnetca20k"]:
+        print("📘 Loading roadNet-CA BFS 20K subgraph (DENSE) ...")
+
+        import os
+        import torch
+        import networkx as nx
+        from torch_geometric.utils import to_dense_adj
+        from tqdm import tqdm
+        import time
+
+        EDGE_PATH = "/home/guoquanjiang/WXY/benchmark_datasets/roadNetCA/roadNet-CA_bfs20k.edgelist"
+        if not os.path.exists(EDGE_PATH):
+            raise FileNotFoundError(f"未找到文件: {EDGE_PATH}")
+
+        t0 = time.time()
+
+        # 1) load graph
+        print(" Reading edgelist ...")
+        G = nx.read_edgelist(EDGE_PATH, nodetype=int, data=False)
+
+        # 2) remap node ids
+        nodes = list(G.nodes())
+        node_id = {v: i for i, v in enumerate(nodes)}
+        num_nodes = len(nodes)
+
+        edges = []
+        for u, v in tqdm(G.edges(), desc=" Building edge_index", ncols=100):
+            edges.append([node_id[u], node_id[v]])
+            edges.append([node_id[v], node_id[u]])
+
+        edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
+
+        print(f"✔ roadNet-CA-20K: nodes={num_nodes}, edges={edge_index.shape[1]//2}")
+
+        # 3) dense adjacency
+        print(" Building dense adjacency matrix ...")
+        adj = to_dense_adj(edge_index, max_num_nodes=num_nodes).squeeze(0).float()
+
+        features = None
+        dists = None
+        labels = None
+
+        print(f"✔ roadNet-CA-20K loaded in {time.time() - t0:.2f} seconds\n")
+        # --------------------------------------------------
+        # 4) FORCE APSP (STRICT MODE)
+        # --------------------------------------------------
+        print("  Computing APSP via NetworkX BFS  ...")
+
+        import networkx as nx
+        from tqdm import tqdm
+
+        # 用 remap 后的 id 构建 Graph
+        G_remap = nx.Graph()
+        G_remap.add_edges_from(
+            [(node_id[u], node_id[v]) for u, v in G.edges()]
+        )
+
+        # 分配距离矩阵
+        dists = torch.full(
+            (num_nodes, num_nodes),
+            float("inf"),
+            dtype=torch.float32
+        )
+
+        # BFS from each node
+        for i in tqdm(range(num_nodes),
+                    desc="APSP (BFS from each node)",
+                    ncols=100):
+            sp = nx.single_source_shortest_path_length(G_remap, i)
+            for j, d in sp.items():
+                dists[i, j] = float(d)
+
+        # inf → finite（manify / STRICT 需要）
+        max_finite = dists[dists < float("inf")].max()
+        dists[dists == float("inf")] = max_finite * 2
+
+        return features, dists, adj, labels
+    
+   # ======================================================================================
+    #  roadNet-CA BFS subgraph — 100K nodes (DENSE + FORCE APSP, STRICT MODE)
+    # ======================================================================================
+    if name.lower() in ["roadnet_ca_100k", "roadnetca100k"]:
+        print("📘 Loading roadNet-CA BFS 100K subgraph (DENSE + FORCE APSP) ...")
+
+        import os
+        import torch
+        import networkx as nx
+        from torch_geometric.utils import to_dense_adj
+        from tqdm import tqdm
+        import time
+
+        EDGE_PATH = "/home/guoquanjiang/WXY/benchmark_datasets/roadNetCA/roadNet-CA_bfs100k.edgelist"
+        if not os.path.exists(EDGE_PATH):
+            raise FileNotFoundError(f"未找到文件: {EDGE_PATH}")
+
+        t0 = time.time()
+
+        # --------------------------------------------------
+        # 1) Load edgelist
+        # --------------------------------------------------
+        print(" Reading edgelist ...")
+        G = nx.read_edgelist(EDGE_PATH, nodetype=int, data=False)
+
+        # --------------------------------------------------
+        # 2) Remap node ids → 0..N-1
+        # --------------------------------------------------
+        nodes = list(G.nodes())
+        node_id = {v: i for i, v in enumerate(nodes)}
+        num_nodes = len(nodes)
+
+        edges = []
+        for u, v in tqdm(G.edges(), desc=" Building edge_index", ncols=100):
+            edges.append([node_id[u], node_id[v]])
+            edges.append([node_id[v], node_id[u]])
+
+        edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
+
+        print(f"✔ roadNet-CA-100K: nodes={num_nodes}, edges={edge_index.shape[1]//2}")
+
+        # --------------------------------------------------
+        # 3) Dense adjacency
+        # --------------------------------------------------
+        print(" Building HUGE dense adjacency matrix ...")
+        adj = to_dense_adj(edge_index, max_num_nodes=num_nodes).squeeze(0).float()
+
+        # --------------------------------------------------
+        # 4) FORCE APSP via NetworkX BFS
+        # --------------------------------------------------
+        print("  Computing APSP via NetworkX BFS  ...")
+
+        G_remap = nx.Graph()
+        G_remap.add_edges_from(
+            [(node_id[u], node_id[v]) for u, v in G.edges()]
+        )
+
+        dists = torch.full(
+            (num_nodes, num_nodes),
+            float("inf"),
+            dtype=torch.float32
+        )
+
+        for i in tqdm(range(num_nodes),
+                    desc="APSP (BFS from each node)",
+                    ncols=100):
+            sp = nx.single_source_shortest_path_length(G_remap, i)
+            for j, d in sp.items():
+                dists[i, j] = float(d)
+
+        max_finite = dists[dists < float("inf")].max()
+        dists[dists == float("inf")] = max_finite * 2
+
+        print(f"✔ APSP done in {time.time() - t0:.2f} seconds")
+
+        # --------------------------------------------------
+        # 5) No features / labels
+        # --------------------------------------------------
+        features = None
+        labels = None
+
+        print("✔ roadNet-CA-100K loaded with FULL APSP\n")
+        return features, dists, adj, labels
+
+
+    
     # ✅ 原始逻辑（Hugging Face 数据集）
     ds = load_dataset(f"{namespace}/{name}")
     data = ds.get("train", ds)  # use "train" split if available, else the only split

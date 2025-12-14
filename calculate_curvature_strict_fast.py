@@ -27,13 +27,19 @@ if device.type == "cuda":
 # =========================================================
 #dataset_name = "computers"   #  换数据集
 #dataset_name = "pubmed"
-dataset_name = "cora"
+#dataset_name = "cora"
 #dataset_name = "citeseer"
 #dataset_name = "photo"
 #dataset_name = "cs"
 #dataset_name = "polblogs"
 #dataset_name = "polbooks"
-#dataset_name = "webgoogle"
+#dataset_name = "wordnet"   # WordNet 数据集
+#dataset_name = "telecom"
+#dataset_name = "twitter"
+#dataset_name = "twitter10k"   # Higgs 子图数据集
+#dataset_name = "rocketfuel_7018"
+#dataset_name = "roadnetca20k"
+dataset_name = "roadnetca100k"
 # =========================================================
 # 加载数据集
 # =========================================================
@@ -46,7 +52,11 @@ if features is None:
 print(" 数据加载成功：")
 print(f"节点数: {adj.shape[0]}")
 print(f"特征维度: {features.shape[1]}")
-print(f"类别数: {len(torch.unique(labels))}\n")
+if labels is not None:
+    print(f"类别数: {len(torch.unique(labels))}\n")
+else:
+    print("类别数: None（此数据集无标签）\n")
+
 
 
 # =========================================================
@@ -145,7 +155,7 @@ print(f" 结果已保存到: {save_dir}\n")
 # =========================================================
 plt.figure(figsize=(8, 5))
 plt.hist(curvatures_cpu.numpy(), bins=30, color="skyblue", edgecolor="black")
-plt.title(f"{dataset_name.upper()} 图节点曲率分布 ({mode.upper()} 模式 GPU 加速版)")
+plt.title(f"{dataset_name.upper()} node curvature ({mode.upper()} GPU)")
 plt.xlabel("Sectional Curvature")
 plt.ylabel("Frequency")
 plt.grid(alpha=0.3)

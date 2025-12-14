@@ -170,7 +170,31 @@ def sectional_curvature_gpu(
     #  归一化 + CUDA 同步
     # ======================================================
     if relative:
-        maxD = torch.max(D[torch.isfinite(D)])
+        # 检查是否存在 inf
+        has_inf = torch.isinf(D).any()
+
+        if has_inf:
+            # 只取有限值的最大值 —— 但不构造巨大 mask（避免 nonzero 限制）
+            # 方案：逐块扫描最大 finite 值（流式，不占大内存）
+            maxD = float("-inf")
+            chunk = 5000
+
+            for start in range(0, D.size(0), chunk):
+                end = min(start + chunk, D.size(0))
+                block = D[start:end]
+
+                # 局部 finite 最大值（不会创建大 mask）
+                finite_block = block[~torch.isinf(block)]
+                if finite_block.numel() > 0:
+                    local_max = finite_block.max().item()
+                    maxD = max(maxD, local_max)
+
+            if maxD == float("-inf"):
+                raise RuntimeError("APSP 距离全是 inf，图可能完全不连通。")
+
+        else:
+            # 没有 inf，直接取最大值
+            maxD = torch.max(D).item()
         if maxD > 0:
             node_curv = node_curv / maxD
 

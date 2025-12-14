@@ -1,0 +1,11 @@
+{
+  "dataset": "roadnetca20k",
+  "mode": "strict",
+  "nodes": 20000,
+  "mean": -0.0003379334812052548,
+  "min": -0.006818718742579222,
+  "max": 0.010308247990906239,
+  "device": "cuda",
+  "elapsed_minutes": 1.06,
+  "timestamp": "2025-12-14_22-56-23"
+}

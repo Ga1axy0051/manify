@@ -1,0 +1,11 @@
+{
+  "dataset": "citeseer",
+  "mode": "fast",
+  "nodes": 2110,
+  "mean": 0.0022152969613671303,
+  "min": -0.03227405622601509,
+  "max": 0.035680416971445084,
+  "device": "cuda",
+  "elapsed_minutes": 0.5,
+  "timestamp": "2025-11-26_22-27-27"
+}

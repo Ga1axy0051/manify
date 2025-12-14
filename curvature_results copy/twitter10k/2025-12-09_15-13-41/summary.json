@@ -1,0 +1,11 @@
+{
+  "dataset": "twitter10k",
+  "mode": "strict",
+  "nodes": 51698,
+  "mean": 0.00047394330613315105,
+  "min": -0.018297838047146797,
+  "max": 0.01867261528968811,
+  "device": "cuda",
+  "elapsed_minutes": 5.01,
+  "timestamp": "2025-12-09_15-13-41"
+}

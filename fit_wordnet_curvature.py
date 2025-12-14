@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 """
 在 WordNet 图上拟合 Poincaré embedding，并学习一个全局曲率 K（负数）。
 思路：
@@ -28,7 +25,7 @@ from tqdm import tqdm
 # ===========================
 
 # 按照你 manify 的路径来
-PATH = r"./data/wordnet_graph.pt"
+PATH = r"./manify/data/wordnet/wordnet_graph.pt"
 
 print(f"📘 加载 WordNet 图: {PATH}")
 data = torch.load(PATH)
@@ -41,7 +38,7 @@ print(f"✔ Loaded WordNet graph: N={N}, nnz={adj._nnz()}")
 # 2. 抽取子图，计算最短路距离
 # ===========================
 
-SUB_N = 1000      # 子图节点数，可以改大/小，比如 1000, 3000
+SUB_N = 82115      # 子图节点数，可以改大/小，比如 1000, 3000
 MAX_DIST = 10     # BFS 最大深度，只关心这个范围内的距离
 
 random.seed(0)
