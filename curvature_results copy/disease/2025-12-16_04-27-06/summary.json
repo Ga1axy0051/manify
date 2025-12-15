@@ -1,0 +1,11 @@
+{
+  "dataset": "disease",
+  "mode": "fast",
+  "nodes": 573,
+  "mean": -0.01369982585310936,
+  "min": -0.0714285746216774,
+  "max": 0.0,
+  "device": "cuda",
+  "elapsed_minutes": 0.03,
+  "timestamp": "2025-12-16_04-27-06"
+}
