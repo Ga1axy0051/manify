@@ -722,7 +722,7 @@ def load_hf(
         # 5) APSP (ONLY if needed)
         # --------------------------------------------------
         print("⏳ Computing APSP via NetworkX BFS ...")
-        print("   （如果你只是 manifold fitting，可把这段注释掉）")
+        print("   （如果只是 manifold fitting，把这段注释掉）")
 
         G_remap = nx.Graph()
         G_remap.add_edges_from(
@@ -754,6 +754,109 @@ def load_hf(
         print(f"✔ Airport loaded in {time.time() - t0:.2f} seconds\n")
 
         return features, dists, adj, labels
+    
+    # ======================================================================================
+    #  Disease Network (HGCN format) — NC / LP
+    # ======================================================================================
+    if name.lower() in ["disease", "disease_nc", "disease_lp"]:
+        print(" Loading Disease network (HGCN format) ...")
+
+        import os
+        import torch
+        import pandas as pd
+        import networkx as nx
+        from torch_geometric.utils import to_dense_adj
+        from tqdm import tqdm
+        import time
+
+        BASE_DIR = "/home/guoquanjiang/WXY/manify/data/disease"
+
+        EDGE_PATH = os.path.join(BASE_DIR, "disease_nc.edges.csv")
+
+        if not os.path.exists(EDGE_PATH):
+            raise FileNotFoundError(f"未找到 edge.csv: {EDGE_PATH}")
+
+        t0 = time.time()
+
+        # --------------------------------------------------
+        # 1) Load edge list
+        # --------------------------------------------------
+        print(" Reading edge.csv ...")
+        df = pd.read_csv(EDGE_PATH)
+
+        G = nx.Graph()
+        for _, row in df.iterrows():
+            u = int(row[0])
+            v = int(row[1])
+            if u != v:
+                G.add_edge(u, v)
+
+        print(f"✔ Raw graph: nodes={G.number_of_nodes()}, edges={G.number_of_edges()}")
+
+        # --------------------------------------------------
+        # 2) Largest connected component（非常重要）
+        # --------------------------------------------------
+        lcc = max(nx.connected_components(G), key=len)
+        G = G.subgraph(lcc).copy()
+
+        print(f"✔ LCC graph: nodes={G.number_of_nodes()}, edges={G.number_of_edges()}")
+
+        # --------------------------------------------------
+        # 3) Remap node ids → 0..N-1
+        # --------------------------------------------------
+        nodes = list(G.nodes())
+        node_id = {v: i for i, v in enumerate(nodes)}
+        num_nodes = len(nodes)
+
+        edges = []
+        for u, v in tqdm(G.edges(), desc=" Building edge_index", ncols=100):
+            edges.append([node_id[u], node_id[v]])
+            edges.append([node_id[v], node_id[u]])
+
+        edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
+
+        # --------------------------------------------------
+        # 4) Dense adjacency
+        # --------------------------------------------------
+        print(" Building dense adjacency matrix ...")
+        adj = to_dense_adj(edge_index, max_num_nodes=num_nodes).squeeze(0).float()
+
+        # --------------------------------------------------
+        # 5) APSP (STRICT MODE)
+        # --------------------------------------------------
+        print(" Computing APSP via NetworkX BFS ...")
+
+        G_remap = nx.Graph()
+        G_remap.add_edges_from(
+            [(node_id[u], node_id[v]) for u, v in G.edges()]
+        )
+
+        dists = torch.full(
+            (num_nodes, num_nodes),
+            float("inf"),
+            dtype=torch.float32
+        )
+
+        for i in tqdm(range(num_nodes),
+                    desc="APSP (BFS from each node)",
+                    ncols=100):
+            sp = nx.single_source_shortest_path_length(G_remap, i)
+            for j, d in sp.items():
+                dists[i, j] = float(d)
+
+        max_finite = dists[dists < float("inf")].max()
+        dists[dists == float("inf")] = max_finite * 2
+
+        # --------------------------------------------------
+        # 6) features / labels（曲率实验不需要）
+        # --------------------------------------------------
+        features = None
+        labels = None
+
+        print(f"✔ Disease loaded in {time.time() - t0:.2f} seconds\n")
+
+        return features, dists, adj, labels
+
 
 
 

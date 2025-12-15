@@ -40,7 +40,8 @@ if device.type == "cuda":
 #dataset_name = "rocketfuel_7018"
 #dataset_name = "roadnetca20k"
 #dataset_name = "roadnetca100k"
-dataset_name = "airport"   # Airport 数据集
+#dataset_name = "airport"   # Airport 数据集
+dataset_name = "disease"   # Disease 网络数据集
 # =========================================================
 # 加载数据集
 # =========================================================
