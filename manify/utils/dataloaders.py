@@ -174,31 +174,7 @@ def load_hf(
         print(" Amazon Computers dataset loaded successfully!")
         return features, dists, adj, labels
     
-    if name.lower() == "airport":
-        print("📘 Loading Airports dataset using PyTorch Geometric ...")
-
-        from torch_geometric.datasets import Airports
-        from torch_geometric.utils import to_dense_adj
-
-        # 你可以选一个区域：USA / Europe / Brazil
-        dataset = Airports(root="./data/Airport", name="USA")   # ← 改成 Europe/Brazil 也可以
-        data = dataset[0]
-
-        # adjacency (dense)
-        adj = to_dense_adj(data.edge_index)[0]
-
-        # features
-        features = data.x.float()
-
-        # labels（Airports 数据集是回归任务）
-        labels = data.y.float()
-
-        # distance matrix
-        print("⚙️ Computing pairwise feature distance matrix ...")
-        dists = torch.cdist(features, features)
-
-        print(f"✅ Loaded Airport-USA: nodes={features.size(0)}, feat_dim={features.size(1)}")
-        return features, dists, adj, labels
+    
 
     # 🟦 单独分支：处理 Amazon Photo 数据集
     # ======================================================
@@ -685,6 +661,100 @@ def load_hf(
 
         print("✔ roadNet-CA-100K loaded with FULL APSP\n")
         return features, dists, adj, labels
+    
+    # ======================================================================================
+    #  Airport Network (OpenFlights) — local processed graph
+    # ======================================================================================
+    if name.lower() in ["airport", "airports", "openflights"]:
+        print("📘 Loading Airport network (local graph) ...")
+
+        import os
+        import pickle
+        import torch
+        import networkx as nx
+        from torch_geometric.utils import to_dense_adj
+        from tqdm import tqdm
+        import time
+
+        BASE_DIR = "/home/guoquanjiang/WXY/manify/data/Airport"
+        GRAPH_PATH = os.path.join(BASE_DIR, "airport_graph.pkl")
+
+        if not os.path.exists(GRAPH_PATH):
+            raise FileNotFoundError(
+                f"未找到 {GRAPH_PATH}\n"
+                "请先运行 build_airport_graph.py"
+            )
+
+        t0 = time.time()
+
+        # --------------------------------------------------
+        # 1) Load NetworkX graph
+        # --------------------------------------------------
+        with open(GRAPH_PATH, "rb") as f:
+            G = pickle.load(f)
+
+        print(f"✔ Loaded airport graph: nodes={G.number_of_nodes()}, edges={G.number_of_edges()}")
+
+        # --------------------------------------------------
+        # 2) Remap node ids → 0..N-1
+        # --------------------------------------------------
+        nodes = list(G.nodes())
+        node_id = {v: i for i, v in enumerate(nodes)}
+        num_nodes = len(nodes)
+
+        # --------------------------------------------------
+        # 3) Build edge_index
+        # --------------------------------------------------
+        edges = []
+        for u, v in tqdm(G.edges(), desc=" Building edge_index", ncols=100):
+            edges.append([node_id[u], node_id[v]])
+            edges.append([node_id[v], node_id[u]])
+
+        edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
+
+        # --------------------------------------------------
+        # 4) Dense adjacency
+        # --------------------------------------------------
+        print("📦 Building dense adjacency matrix ...")
+        adj = to_dense_adj(edge_index, max_num_nodes=num_nodes).squeeze(0).float()
+
+        # --------------------------------------------------
+        # 5) APSP (ONLY if needed)
+        # --------------------------------------------------
+        print("⏳ Computing APSP via NetworkX BFS ...")
+        print("   （如果你只是 manifold fitting，可把这段注释掉）")
+
+        G_remap = nx.Graph()
+        G_remap.add_edges_from(
+            [(node_id[u], node_id[v]) for u, v in G.edges()]
+        )
+
+        dists = torch.full(
+            (num_nodes, num_nodes),
+            float("inf"),
+            dtype=torch.float32
+        )
+
+        for i in tqdm(range(num_nodes),
+                    desc="APSP (BFS from each node)",
+                    ncols=100):
+            sp = nx.single_source_shortest_path_length(G_remap, i)
+            for j, d in sp.items():
+                dists[i, j] = float(d)
+
+        max_finite = dists[dists < float("inf")].max()
+        dists[dists == float("inf")] = max_finite * 2
+
+        # --------------------------------------------------
+        # 6) No features / labels
+        # --------------------------------------------------
+        features = None
+        labels = None
+
+        print(f"✔ Airport loaded in {time.time() - t0:.2f} seconds\n")
+
+        return features, dists, adj, labels
+
 
 
     

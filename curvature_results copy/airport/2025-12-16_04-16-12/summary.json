@@ -1,0 +1,11 @@
+{
+  "dataset": "airport",
+  "mode": "fast",
+  "nodes": 3304,
+  "mean": 0.02169216237962246,
+  "min": -0.07182635366916656,
+  "max": 0.07686776667833328,
+  "device": "cuda",
+  "elapsed_minutes": 0.5,
+  "timestamp": "2025-12-16_04-16-12"
+}

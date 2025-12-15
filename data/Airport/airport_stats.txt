@@ -1,0 +1,7 @@
+Airport Network Statistics
+===========================
+Nodes: 3304
+Edges: 19054
+Average degree: 11.5339
+Is connected: True
+Diameter (approx): 13
